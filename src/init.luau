@@ -28,10 +28,14 @@ export type Hitbox = typeof(setmetatable(
 		State: Data.HitboxState,
 
 		Hit: Signal.Signal<{ Model }>,
+		Started: Signal.Signal<>,
+		Stopped: Signal.Signal<>,
 
 		_Visualizer: Visualizer.Visualizer?,
 		_HeartbeatConnection: RBXScriptConnection?,
 		_AnchorConnection: RBXScriptConnection?,
+
+		_DelayThread: thread?,
 	},
 	Hitbox
 ))
@@ -60,10 +64,13 @@ function Hitbox.new(config: Config?): Hitbox
 	self.State = Data.DEFAULTS.State
 
 	self.Hit = Signal.new()
+	self.Started = Signal.new()
+	self.Stopped = Signal.new()
 
 	self._Visualizer = if self.Options.VisualizeBox then Visualizer.new() else nil
 	self._HeartbeatConnection = nil
 	self._AnchorConnection = nil
+	self._DelayThread = nil
 
 	log("created")
 	return self
@@ -75,6 +82,10 @@ function Hitbox._SetState(self: Hitbox, state: Data.HitboxState)
 end
 
 function Hitbox._Release(self: Hitbox)
+	if self._DelayThread then
+		task.cancel(self._DelayThread)
+		self._DelayThread = nil
+	end
 	if self._HeartbeatConnection then
 		self._HeartbeatConnection:Disconnect()
 		self._HeartbeatConnection = nil
@@ -88,7 +99,7 @@ function Hitbox._Release(self: Hitbox)
 	end
 end
 
-function Hitbox.Start(self: Hitbox)
+function Hitbox.Start(self: Hitbox, Duration: number?)
 	if self.State ~= "Idle" or not isAnchorInWorld(self.Anchor) then
 		return
 	end
@@ -114,6 +125,14 @@ function Hitbox.Start(self: Hitbox)
 	end
 
 	self:_SetState("Started")
+	self.Started:Fire()
+
+	if Duration then
+		self._DelayThread = task.delay(Duration, function()
+			self._DelayThread = nil -- clear first so _Release doesn't cancel the running thread
+			self:Stop()
+		end)
+	end
 end
 
 function Hitbox.Stop(self: Hitbox)
@@ -122,6 +141,7 @@ function Hitbox.Stop(self: Hitbox)
 	end
 	self:_Release()
 	self:_SetState("Idle")
+	self.Stopped:Fire()
 end
 
 function Hitbox.Destroy(self: Hitbox)
